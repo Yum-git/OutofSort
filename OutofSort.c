@@ -4,7 +4,7 @@
 #include<stdbool.h>
 #pragma warning(disable:4996)
 
-#define OutFileLimit 32
+#define OutFileLimit 100000
 
 #include<time.h>
 #include<Windows.h>
@@ -87,11 +87,10 @@ void sort(unsigned long left, unsigned long right, char** arr) {
 				stack[nstack - 1] = l;
 				l = i;
 			}
-			free(tmp);
 		}
 	}
 	free(stack + 1);
-	free(a);
+
 }
 
 void merge(unsigned long p, unsigned long q, unsigned long r, char **arr) {
@@ -251,6 +250,8 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char **arr) {
 	/*1分の1*/
 	merge(l, k, r, arr);
 	/*1分の1　end*/
+
+	printf("\n\n");
 }
 
 
@@ -262,7 +263,7 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char **arr) {
 
 
 int main() {
-	char *FileName = "Testof64.dat";
+	char *FileName = "Testof10000000.dat";
 	char outname[20];
 	FILE *fp;
 	bool ExitCount = 0;
@@ -297,12 +298,12 @@ int main() {
 		sortQuickandMerge(1, OutFileLimit, aa);
 
 		for (i = 0; i < OutFileLimit; i++) {
-			printf("%d : %s", i + 1, input_array[i]);
+			//printf("%d : %s", i + 1, input_array[i]);
 			fprintf(outfile, "%s", input_array[i]);
 		}
 		fclose(outfile);
 		free(input_array);
-		printf("%d:End ", OutLimitMane);
+		printf("%d:End\n", OutLimitMane);
 		OutLimitMane++;
 	}
 
