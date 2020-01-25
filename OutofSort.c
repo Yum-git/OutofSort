@@ -94,15 +94,17 @@ void sort(unsigned long left, unsigned long right, char** arr) {
 }
 
 void merge(unsigned long p, unsigned long q, unsigned long r, char **arr) {
+
+	printf("Merge in\n");
 	int i, k, j;
 	int n1 = q - p + 1, n2 = r - q;
 	char **aleft = (char**)malloc(sizeof(char) * n1 * 100);
 	char **aright = (char**)malloc(sizeof(char) * n2 * 100);
 	for (i = 0; i < n1; i++) {
-		aleft[i] = malloc(sizeof(char) * 100);
+		aleft[i] = (char*)malloc(sizeof(char) * 100);
 	}
 	for (i = 0; i < n2; i++) {
-		aright[i] = malloc(sizeof(char) * 100);
+		aright[i] = (char*)malloc(sizeof(char) * 100);
 	}
 	for (i = 0; i < n1; i++) {
 		aleft[i] = arr[p + i];
@@ -118,8 +120,17 @@ void merge(unsigned long p, unsigned long q, unsigned long r, char **arr) {
 			arr[k + p] = aleft[i++];
 		}
 	}
+	
+	for (i = 0; i < n1; i++) {
+		free(aleft[i]);
+	}
+	for (i = 0; i < n2; i++) {
+		free(aright[i]);
+	}
+
 	free(aleft);
 	free(aright);
+	printf("Merge Out\n");
 }
 
 unsigned __stdcall qsortThreadEntry(void *arg) {
@@ -151,6 +162,13 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char **arr) {
 	if (left >= right) {
 		exit(0);
 	}
+
+	/*
+	sort(l, r, arr);
+	return;
+	*/
+
+	/*下は現在未使用*/
 
 	k = (l + r) >> 1;
 	half1 = (l + k) >> 1;
@@ -247,20 +265,15 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char **arr) {
 	WaitForSingleObject(LeftThread_merge, INFINITE);
 	CloseHandle(LeftThread_merge);
 
+	printf("merge first in\n");
 	/*1分の1*/
 	merge(l, k, r, arr);
 	/*1分の1　end*/
 
 	printf("\n\n");
+
+	/*上は現在未使用*/
 }
-
-
-
-
-
-
-
-
 
 int main() {
 	char *FileName = "Testof10000000.dat";
@@ -276,10 +289,10 @@ int main() {
 	i = 0;
 	while (1) {
 		char **input_array;
-		input_array = malloc(sizeof(char *) * OutFileLimit * 100);
+		input_array = (char**)malloc(sizeof(char *) * OutFileLimit * 100);
 
 		for (i = 0; i < OutFileLimit; i++) {
-			input_array[i] = malloc(sizeof(char) * 100);
+			input_array[i] = (char*)malloc(sizeof(char) * 100);
 		}
 		for (i = 0; i < OutFileLimit; i++) {
 			if (fgets(input_array[i], 100, fp) == NULL) {
@@ -292,7 +305,7 @@ int main() {
 			break;
 		}
 		FILE *outfile;
-		sprintf(outname, "%d.dat", OutLimitMane);
+		sprintf(outname, "%s\\%d.dat", "dat", OutLimitMane);
 		outfile = fopen(outname, "w");
 		char **aa = input_array - 1;
 		sortQuickandMerge(1, OutFileLimit, aa);
@@ -302,10 +315,20 @@ int main() {
 			fprintf(outfile, "%s", input_array[i]);
 		}
 		fclose(outfile);
+		for (i = 0; i < OutFileLimit; i++) {
+			free(input_array[i]);
+		}
 		free(input_array);
 		printf("%d:End\n", OutLimitMane);
 		OutLimitMane++;
 	}
 
 	fclose(fp);
+
+	/*↑一時ファイル保存まで↑*/
+
+	/*↓それらをマージしていく↓*/
+
+
+
 }
