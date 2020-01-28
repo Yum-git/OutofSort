@@ -2,6 +2,8 @@
 #include<stdlib.h>
 #include <string.h>
 #include<stdbool.h>
+
+
 #pragma warning(disable:4996)
 
 #define OutFileLimit 100000
@@ -10,12 +12,132 @@
 #include<Windows.h>
 #include<process.h>
 
+#include<direct.h>
+
 #pragma comment(lib, "winmm.lib")
 
 #define SWAP(a, b) (tmp) = (a);(a) = (b);(b) = (tmp);
 
 #define M 32
 #define NSTACK 50
+
+int Foldernumber = 1;
+int Bool_1 = 0;
+
+void Outmerge(unsigned long i, unsigned long q);
+
+struct Merge_info {
+	unsigned long i;
+	unsigned long q;
+};
+
+unsigned __stdcall Out_merge_ThreadEntry(void *arg) {
+	struct Merge_info *context = (struct Merge_info *)arg;
+	Outmerge(context->i, context->q);
+	return 0;
+}
+
+void Outmerge(unsigned long n, unsigned long f) {
+	unsigned long name = n;
+	unsigned long Foldname = f;
+	char merge_first[20];
+	char merge_second[20];
+	char merge_result[20];
+
+	char Foldername[20];
+
+	FILE *mergeone;
+	FILE *mergetwo;
+	FILE *mergeresult;
+	int count = 0;
+
+	int checkleftcount = 0, checkrightcount = 0;
+
+	int F1 = 0, F2 = 0;
+
+	char *input_one = (char*)malloc(sizeof(char) * 100);
+	char *input_two = (char*)malloc(sizeof(char) * 100);
+
+	sprintf(merge_first, "dat%d\\%d.dat", Foldname, name);
+	sprintf(merge_second, "dat%d\\%d.dat", Foldname, name + 1);
+	sprintf(Foldername, "dat%d", Foldname + 1);
+	if (_mkdir(Foldername) == 0) {
+		printf("new folder\n");
+	}
+	sprintf(merge_result, "dat%d\\%d.dat", Foldname + 1 , name / 2 + name % 2);
+
+	if ((mergeone = fopen(merge_first, "r")) == NULL) {
+		printf("file open error\n");
+		return;
+	}
+	else if ((mergetwo = fopen(merge_second, "r")) == NULL) {
+		mergeresult = fopen(merge_result, "w");
+		while (fgets(input_one, 100, mergeone) != NULL) {
+			fprintf(mergeresult, "%s", input_one);
+		}
+		printf("second file open error\n");
+
+		fclose(mergeone);
+		fclose(mergeresult);
+
+		free(input_one);
+		free(input_two);
+
+		return;
+	}
+
+	mergeresult = fopen(merge_result, "w");
+
+	fgets(input_one, 100, mergeone);
+	fgets(input_two, 100, mergetwo);
+
+	for (;;) {
+		if (memcmp(input_one, input_two, 10) < 0) {
+			fprintf(mergeresult, "%s", input_one);
+			checkleftcount++;
+			if (fgets(input_one, 100, mergeone) == NULL) {
+				fprintf(mergeresult, "%s", input_two);
+				checkrightcount++;
+				while (fgets(input_two, 100, mergetwo) != NULL) {
+					fprintf(mergeresult, "%s", input_two);
+					checkrightcount++;
+				}
+				break;
+				F1 = 1;
+			}
+		}
+		else {
+			fprintf(mergeresult, "%s", input_two);
+			checkrightcount++;
+			if (fgets(input_two, 100, mergetwo) == NULL) {
+				fprintf(mergeresult, "%s", input_one);
+				checkleftcount++;
+				while (fgets(input_one, 100, mergeone) != NULL) {
+					fprintf(mergeresult, "%s", input_one);
+					checkleftcount++;
+				}
+				break;
+				F2 = 1;
+			}
+		}
+		if (F1 == 1 || F2 == 1) {
+			break;
+		}
+	}
+
+	printf("Left: %d  Right: %d\n", checkleftcount, checkrightcount);
+
+	fclose(mergeone);
+	fclose(mergetwo);
+	fclose(mergeresult);
+
+	free(input_one);
+	free(input_two);
+
+	return;
+}
+
+
 
 struct thread_info {
 	char **arr;
@@ -163,10 +285,9 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char **arr) {
 		exit(0);
 	}
 
-	/*
+
 	sort(l, r, arr);
 	return;
-	*/
 
 	/*下は現在未使用*/
 
@@ -305,7 +426,7 @@ int main() {
 			break;
 		}
 		FILE *outfile;
-		sprintf(outname, "%s\\%d.dat", "dat", OutLimitMane);
+		sprintf(outname, "%s\\%d.dat", "dat0", OutLimitMane);
 		outfile = fopen(outname, "w");
 		char **aa = input_array - 1;
 		sortQuickandMerge(1, OutFileLimit, aa);
@@ -329,6 +450,74 @@ int main() {
 
 	/*↓それらをマージしていく↓*/
 
+	int tmp = OutLimitMane;
+	for (i = 0; OutLimitMane != 1; i++) {
+		OutLimitMane = (OutLimitMane + 1) / 2;
+	}
 
+	/*
+	printf("%d\n", i);
+	return 0;
+	*/
 
+	int p, q;
+	unsigned long par4Q = 0;
+	for (p = 0; p < OutLimitMane; p++) {
+		tmp = (tmp + 1) / 2;
+		for (q = 0; q < tmp; q++) {
+			HANDLE SecondThread, ThirdThread, FoursThread;
+			struct Merge_info par1, par2, par3;
+
+			par1.q = p;
+			par1.i = q;
+
+			par2.q = p;
+			par2.i = par1.i + 2;
+
+			par3.q = p;
+			par3.i = par2.i + 2;
+
+			printf("%d, %d, %d", par1.i, par2.i, par3.i);
+
+			SecondThread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par1,
+				0,
+				NULL
+			);
+
+			ThirdThread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par2,
+				0,
+				NULL
+			);
+
+			FoursThread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par3,
+				0,
+				NULL
+			);
+
+			par4Q = par3.i + 2;
+			Outmerge(i, par4Q);
+			WaitForSingleObject(SecondThread, INFINITE);
+			WaitForSingleObject(ThirdThread, INFINITE);
+			WaitForSingleObject(FoursThread, INFINITE);
+
+			CloseHandle(SecondThread);
+			CloseHandle(ThirdThread);
+			CloseHandle(FoursThread);
+
+		}
+	}
+
+	return 0;
 }
