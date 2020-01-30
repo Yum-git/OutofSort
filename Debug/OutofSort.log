@@ -1,3 +1,2 @@
 ﻿  OutofSort.c
-c:\users\yum\desktop\git\outofsort\outofsort.c(464): warning C4018: '<': signed と unsigned の数値を比較しようとしました。
   OutofSort.vcxproj -> C:\Users\Yum\Desktop\git\OutofSort\Debug\OutofSort.exe
