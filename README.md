@@ -1,4 +1,4 @@
-gensort(http://www.ordinal.com/gensort.html)にて生成したファイルをソートできるファイルです．
+gensort(http://www.ordinal.com/gensort.html) にて生成したファイルをソートできるファイルです．
 現在16GBまでのソートの成功を確認しています．
 1．クイックソートにて一時ファイルに分割（内部ソート）
 2．マージソートにて4つのスレッドを利用して結合（外部ソート）
