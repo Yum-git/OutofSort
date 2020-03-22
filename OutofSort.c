@@ -1,36 +1,92 @@
-﻿#include<stdio.h>
+﻿/*
+前提条件：
+・gensort（http://www.ordinal.com/gensort.html）にて作成されたデータをソートする
+（ダウンロード先　
+　windows・・・"gensort-win-1.5.zip"
+  linux・・・"gensort-linux-1.5.tar.gz"）
+・データの作成方法はgensort.exeを"gensort -a N ファイル名"を引数として実行する
+（-aにてASCIIレコードを生成する．またNはレコードの個数を指定する．）
+・ソートするキーは10byteのASCIIレコードにて行う
+・使用するPCのCPUは12スレッド以上を搭載していること
+（動作確認済み：intel corei7 8700）
+*/
+
+#include<stdio.h>
 #include<stdlib.h>
-#include <string.h>
+#include<string.h>
 #include<stdbool.h>
-#pragma warning(disable:4996)
-#define OutFileLimit 100000
 #include<time.h>
 #include<Windows.h>
 #include<process.h>
 #include<direct.h>
+
+#pragma warning(disable:4996)
 #pragma comment(lib, "winmm.lib")
+
+//SWAP関数　ソート時に使用します
 #define SWAP(a, b) (tmp) = (a);(a) = (b);(b) = (tmp);
+//クイックソートから挿入ソートに切り替える配列の長さ　今回は32
 #define M 32
+//スタックする配列の長さ
 #define NSTACK 50
+//一時ファイルに切り替えるレコードの個数
+#define OutFileLimit 100000
+
+//最大使用スレッド数を制限　当環境は6コア12スレッドなので12に指定
+#define NUM_THREADS 12
+//スレッドに割り振る仕事の最小値を指定　今回は1000
+#define THRESHOLD 1000
+//現在作動しているスレッド数
+int workingThreads = 0;
+//同期監視
+CRITICAL_SECTION cs;
+
 int Foldernumber = 1;
 int Bool_1 = 0;
+
+//関数のプロトタイプ宣言
 void Outmerge(unsigned long i, unsigned long q);
+void sort(unsigned long left, unsigned long right, char** arr);
+void sortQuickandMerge(unsigned long left, unsigned long right, char** arr);
+
+//マージソートを行うための構造体
 struct Merge_info {
 	unsigned long name;
 	unsigned long fold;
 };
+
+//クイックソートを行うための構造体
+struct thread_info {
+	char** arr;
+	unsigned long l;
+	unsigned long r;
+};
+
+//スレッド起動時の関数　構造体を実質的な引数とする
 unsigned __stdcall Out_merge_ThreadEntry(void* arg) {
 	struct Merge_info* context = (struct Merge_info*)arg;
 	Outmerge(context->name, context->fold);
 	return 0;
 }
+
+//スレッド起動時の関数　構造体を実質的な引数とする
+unsigned __stdcall qsortThreadEntry(void* arg) {
+	struct thread_info* context = (struct thread_info*)arg;
+	char** arr = context->arr;
+	sort(context->l, context->r, arr);
+	return 0;
+}
+
+//外部ソートにてマージソートを行う関数
 void Outmerge(unsigned long n, unsigned long f) {
 	unsigned long name = n;
 	unsigned long Foldname = f;
+	//ソートしたいレコードの長さ
 	char merge_first[20];
 	char merge_second[20];
 	char merge_result[20];
 	char Foldername[20];
+	//マージする一時ファイル2つとマージされたファイル1つ
 	FILE* mergeone;
 	FILE* mergetwo;
 	FILE* mergeresult;
@@ -106,17 +162,23 @@ void Outmerge(unsigned long n, unsigned long f) {
 	free(input_two);
 	return;
 }
-struct thread_info {
-	char** arr;
-	unsigned long l;
-	unsigned long r;
-};
+
+//内部ソートにてクイックソートを行う関数
 void sort(unsigned long left, unsigned long right, char** arr) {
 	unsigned long i, j, k;
 	unsigned long l = left;
 	unsigned long r = right;
 	int* stack, nstack = 0;
 	char* a, *tmp;
+
+	//sortMT
+
+	HANDLE aThread;
+	bool childThread = false;
+	bool permit = true;
+	struct thread_info par;
+
+	//sortMT end
 	stack = (int*)malloc(NSTACK * sizeof(int)) - 1;
 	for (;;) {
 		if (r - l < M) {
@@ -131,6 +193,14 @@ void sort(unsigned long left, unsigned long right, char** arr) {
 				arr[i + 1] = a;
 			}
 			if (nstack == 0) {
+				//sortMT
+
+				if (childThread) {
+					WaitForSingleObject(aThread, INFINITE);
+					CloseHandle(aThread);
+				}
+
+				//sortMT end
 				break;
 			}
 			r = stack[nstack--];
@@ -161,194 +231,84 @@ void sort(unsigned long left, unsigned long right, char** arr) {
 			}
 			arr[l] = arr[j];
 			arr[j] = a;
-			nstack += 2;
-			if (nstack > NSTACK) {
-				printf("Error too small\n");
+			//sortMT
+			if (!childThread && permit) {
+				EnterCriticalSection(&cs);
+				if (workingThreads < NUM_THREADS - 1) {
+					workingThreads++;
+				}
+				else {
+					permit = false;
+				}
+				LeaveCriticalSection(&cs);
 			}
-			if (r - i + 1 >= j - 1) {
-				stack[nstack] = r;
-				stack[nstack - 1] = i;
-				r = j - 1;
+			if (!childThread && permit && (r - i + 1 > THRESHOLD || j - l > THRESHOLD)) {
+				if (r - i + 1 >= j - l) {
+					par.r = r;
+					par.l = i;
+					r = j - 1;
+				}
+				else {
+					par.r = j - 1;
+					par.l = l;
+					l = i;
+				}
+				par.arr = arr;
+
+				aThread = (HANDLE)_beginthreadex(
+					NULL,
+					0,
+					&qsortThreadEntry,
+					(void*)&par,
+					0,
+					NULL
+				);
+				if (aThread == NULL) {
+					printf("_beginthreadex() failed, error: %d\n", GetLastError());
+					return;
+				}
+				childThread = true;
 			}
 			else {
-				stack[nstack] = j - 1;
-				stack[nstack - 1] = l;
-				l = i;
+				//sortMT end
+				nstack += 2;
+				if (nstack > NSTACK) {
+					printf("Error too small\n");
+				}
+				if (r - i + 1 >= j - 1) {
+					stack[nstack] = r;
+					stack[nstack - 1] = i;
+					r = j - 1;
+				}
+				else {
+					stack[nstack] = j - 1;
+					stack[nstack - 1] = l;
+					l = i;
+				}
 			}
 		}
 	}
 	free(stack + 1);
 }
-void merge(unsigned long p, unsigned long q, unsigned long r, char** arr) {
-	printf("Merge in\n");
-	int i, k, j;
-	int n1 = q - p + 1, n2 = r - q;
-	char** aleft = (char**)malloc(sizeof(char) * n1 * 100);
-	char** aright = (char**)malloc(sizeof(char) * n2 * 100);
-	for (i = 0; i < n1; i++) {
-		aleft[i] = (char*)malloc(sizeof(char) * 100);
-	}
-	for (i = 0; i < n2; i++) {
-		aright[i] = (char*)malloc(sizeof(char) * 100);
-	}
-	for (i = 0; i < n1; i++) {
-		aleft[i] = arr[p + i];
-	}
-	for (i = 0; i < n2; i++) {
-		aright[i] = arr[q + 1 + i];
-	}
-	for (k = i = j = 0; k < n1 + n2; k++) {
-		if (i >= n1 || (j < n2 && memcmp(aleft[i], aright[j], 10) > 0)) {
-			arr[k + p] = aright[j++];
-		}
-		else {
-			arr[k + p] = aleft[i++];
-		}
-	}
-	for (i = 0; i < n1; i++) {
-		free(aleft[i]);
-	}
-	for (i = 0; i < n2; i++) {
-		free(aright[i]);
-	}
-	free(aleft);
-	free(aright);
-	printf("Merge Out\n");
-}
-unsigned __stdcall qsortThreadEntry(void* arg) {
-	struct thread_info* context = (struct thread_info*)arg;
-	char** arr = context->arr;
-	sort(context->l, context->r, arr);
-	return 0;
-}
-unsigned __stdcall mergeThreadEntry(void* arg) {
-	struct thread_info* context = (struct thread_info*)arg;
-	char** arr = context->arr;
-	merge(context->l, (context->l + context->r) >> 1, context->r, arr);
-	return 0;
-}
+
+
 void sortQuickandMerge(unsigned long left, unsigned long right, char** arr) {
-	unsigned long k;
 	unsigned long l = left;
 	unsigned long r = right;
-	unsigned long half1, half2;
-	HANDLE LeftMainThread, LeftSubThread, RightSubThread;
-	HANDLE LeftThread_merge;
-	struct thread_info parLeft1, parLeft2, parRight1;
-	struct thread_info parLeftmerge;
 	if (left >= right) {
 		exit(0);
 	}
+
+	InitializeCriticalSection(&cs);
 	sort(l, r, arr);
+	DeleteCriticalSection(&cs);
 	return;
-
-
-
-
-
-	/*下は現在未使用*/
-	k = (l + r) >> 1;
-	half1 = (l + k) >> 1;
-	half2 = (k + r) >> 1;
-	/*4分の1*/
-	parLeft1.l = l;
-	parLeft1.r = half1;
-	parLeft1.arr = arr;
-	LeftMainThread = (HANDLE)_beginthreadex(
-		NULL,
-		0,
-		&qsortThreadEntry,
-		(void*)& parLeft1,
-		0,
-		NULL
-	);
-	if (LeftMainThread == NULL) {
-		printf("_beginthreadex() failed, error: %d\n", GetLastError());
-		return;
-	}
-	/*4分の1　end*/
-	/*4分の2*/
-	parLeft2.l = half1 + 1;
-	parLeft2.r = k;
-	parLeft2.arr = arr;
-	LeftSubThread = (HANDLE)_beginthreadex(
-		NULL,
-		0,
-		&qsortThreadEntry,
-		(void*)& parLeft2,
-		0,
-		NULL
-	);
-	if (LeftSubThread == NULL) {
-		printf("_beginthreadex() failed, error: %d\n", GetLastError());
-		return;
-	}
-	/*4分の2 end*/
-	/*4分の3*/
-	parRight1.l = k + 1;
-	parRight1.r = half2;
-	parRight1.arr = arr;
-	RightSubThread = (HANDLE)_beginthreadex(
-		NULL,
-		0,
-		&qsortThreadEntry,
-		(void*)& parRight1,
-		0,
-		NULL
-	);
-	if (RightSubThread == NULL) {
-		printf("_beginthreadex() failed, error: %d\n", GetLastError());
-		return;
-	}
-	/*4分の3 end*/
-	/*4分の4*/
-	sort(half2 + 1, r, arr);
-	/*4分の4 end*/
-	WaitForSingleObject(LeftMainThread, INFINITE);
-	WaitForSingleObject(LeftSubThread, INFINITE);
-	WaitForSingleObject(RightSubThread, INFINITE);
-	CloseHandle(LeftMainThread);
-	CloseHandle(LeftSubThread);
-	CloseHandle(RightSubThread);
-	/*2分の1*/
-	parLeftmerge.l = l;
-	parLeftmerge.r = k;
-	parLeftmerge.arr = arr;
-	LeftThread_merge = (HANDLE)_beginthreadex(
-		NULL,
-		0,
-		&mergeThreadEntry,
-		(void*)& parLeftmerge,
-		0,
-		NULL
-	);
-	if (LeftThread_merge == NULL) {
-		printf("_beginthreadex() failed, error: %d\n", GetLastError());
-		return;
-	}
-	/*2分の1 end*/
-	/*2分の2*/
-	merge(k + 1, (k + 1 + r) >> 1, r, arr);
-	/*2分の2 end*/
-	WaitForSingleObject(LeftThread_merge, INFINITE);
-	CloseHandle(LeftThread_merge);
-	printf("merge first in\n");
-	/*1分の1*/
-	merge(l, k, r, arr);
-	/*1分の1　end*/
-	printf("\n\n");
-
-
-
-
-
-
-
-	/*上は現在未使用*/
-
 }
+
+
 int main() {
-	char* FileName = "160000000.dat";
+	//ソートしたいfile名
+	char* FileName = "1000000.dat";
 	char outname[20];
 	FILE* fp;
 	bool ExitCount = 0;
@@ -356,9 +316,12 @@ int main() {
 		printf("file open error\n");
 		exit(EXIT_FAILURE);
 	}
-	unsigned long i;
+	unsigned long i = 0;
 	unsigned long OutLimitMane = 0;
 	i = 0;
+
+	//このwhileループ内にてまず内部ソートを開始する
+	//その際，OutFileLimit（20行目）に定められたレコード毎に一時ファイルを作成する
 	while (1) {
 		char** input_array;
 		input_array = (char**)malloc(sizeof(char*) * OutFileLimit * 100);
@@ -366,12 +329,15 @@ int main() {
 			input_array[i] = (char*)malloc(sizeof(char) * 100);
 		}
 		for (i = 0; i < OutFileLimit; i++) {
+			//fgetsにてinput_array配列内に文字をファイルから入力する
+			//同時に終端文字が出現した際にbool型のExitCountの値を1にしてfor文から脱出する
 			if (fgets(input_array[i], 100, fp) == NULL) {
 				ExitCount = 1;
 				break;
 			}
 			//printf("%s\n", input_array[i]);
 		}
+		//bool型のExitCountが1の時，while文（内部ソート処理）から脱出する
 		if (ExitCount) {
 			break;
 		}
@@ -379,7 +345,10 @@ int main() {
 		sprintf(outname, "%s\\%d.dat", "dat0", OutLimitMane);
 		outfile = fopen(outname, "w");
 		char** aa = input_array - 1;
+		//input_array配列内をソートする関数に配列を渡す
 		sortQuickandMerge(1, OutFileLimit, aa);
+
+		//一時ファイルにソートした配列のデータを1行づつ書き込む
 		for (i = 0; i < OutFileLimit; i++) {
 			//printf("%d : %s", i + 1, input_array[i]);
 			fprintf(outfile, "%s", input_array[i]);
@@ -390,6 +359,7 @@ int main() {
 		}
 		free(input_array);
 		printf("%d:End\n", OutLimitMane);
+		//一時ファイル数を記録する
 		OutLimitMane++;
 	}
 	fclose(fp);
@@ -397,6 +367,7 @@ int main() {
 	/*↓それらをマージしていく↓*/
 	unsigned int foldroop = OutLimitMane;
 	int tmp = OutLimitMane;
+	//マージした際に何回ループするかを計算するfor文
 	for (i = 0; OutLimitMane != 1; i++) {
 		OutLimitMane = (OutLimitMane + 1) / 2;
 		foldroop = i;
@@ -406,55 +377,194 @@ int main() {
 
 	int q;
 	unsigned long p;
-	unsigned long par4_name;
+
+	unsigned long Main_name;
 
 	char removefile[20];
+
+	//スレッド作成文
+	//今回は12スレッド
+	//マージされた一時ファイルが1つになるまでループする
 	for (p = 0; p < foldroop; p++) {
+		//一時ファイルをすべてマージするまでループする
 		for (q = 0; q < tmp;) {
-			HANDLE SecondThread, ThirdThread, FoursThread;
+			HANDLE Sub1Thread, Sub2Thread, Sub3Thread;
+			HANDLE Sub4Thread, Sub5Thread, Sub6Thread;
+			HANDLE Sub7Thread, Sub8Thread, Sub9Thread;
+			HANDLE Sub10Thread, Sub11Thread;
 			struct Merge_info par1, par2, par3;
+			struct Merge_info par4, par5, par6;
+			struct Merge_info par7, par8, par9;
+			struct Merge_info par10, par11;
+
+			//どの一時ファイルをマージするかを各スレッドの構造体に入力する
 			par1.name = q;
 			par1.fold = p;
 			par2.name = par1.name + 2;
 			par2.fold = p;
 			par3.name = par2.name + 2;
 			par3.fold = p;
+			par4.name = par3.name + 2;
+			par4.fold = p;
+			par5.name = par4.name + 2;
+			par5.fold = p;
+			par6.name = par5.name + 2;
+			par6.fold = p;
+			par7.name = par6.name + 2;
+			par7.fold = p;
+			par8.name = par7.name + 2;
+			par8.fold = p;
+			par9.name = par8.name + 2;
+			par9.fold = p;
+			par10.name = par9.name + 2;
+			par10.fold = p;
+			par11.name = par10.name + 2;
+			par11.fold = p;
+
 			printf("%d, %d ", par1.name, par1.name + 1);
 			printf("%d, %d ", par2.name, par2.name + 1);
 			printf("%d, %d ", par3.name, par3.name + 1);
-			SecondThread = (HANDLE)_beginthreadex(
+			printf("%d, %d ", par4.name, par4.name + 1);
+			printf("%d, %d ", par5.name, par5.name + 1);
+			printf("%d, %d ", par6.name, par6.name + 1);
+			printf("%d, %d ", par7.name, par7.name + 1);
+			printf("%d, %d ", par8.name, par8.name + 1);
+			printf("%d, %d ", par9.name, par9.name + 1);
+			printf("%d, %d ", par10.name, par10.name + 1);
+			printf("%d, %d ", par11.name, par11.name + 1);
+
+
+			//各スレッドにマージソートを割り振る
+			
+			Sub1Thread = (HANDLE)_beginthreadex(
 				NULL,
 				0,
 				&Out_merge_ThreadEntry,
-				(void*)& par1,
+				(void*)&par1,
 				0,
 				NULL
 			);
-			ThirdThread = (HANDLE)_beginthreadex(
+
+			Sub2Thread = (HANDLE)_beginthreadex(
 				NULL,
 				0,
 				&Out_merge_ThreadEntry,
-				(void*)& par2,
+				(void*)&par2,
 				0,
 				NULL
 			);
-			FoursThread = (HANDLE)_beginthreadex(
+
+			Sub3Thread = (HANDLE)_beginthreadex(
 				NULL,
 				0,
 				&Out_merge_ThreadEntry,
-				(void*)& par3,
+				(void*)&par3,
 				0,
 				NULL
 			);
-			par4_name = par3.name + 2;
-			Outmerge(par4_name, p);
-			WaitForSingleObject(SecondThread, INFINITE);
-			WaitForSingleObject(ThirdThread, INFINITE);
-			WaitForSingleObject(FoursThread, INFINITE);
-			CloseHandle(SecondThread);
-			CloseHandle(ThirdThread);
-			CloseHandle(FoursThread);
-			q = par4_name + 2;
+
+			Sub4Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par4,
+				0,
+				NULL
+			);
+
+			Sub5Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par5,
+				0,
+				NULL
+			);
+
+			Sub6Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par6,
+				0,
+				NULL
+			);
+
+			Sub7Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par7,
+				0,
+				NULL
+			);
+
+			Sub8Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par8,
+				0,
+				NULL
+			);
+
+			Sub9Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par9,
+				0,
+				NULL
+			);
+
+			Sub10Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par10,
+				0,
+				NULL
+			);
+
+			Sub11Thread = (HANDLE)_beginthreadex(
+				NULL,
+				0,
+				&Out_merge_ThreadEntry,
+				(void*)&par11,
+				0,
+				NULL
+			);
+
+			Main_name = par11.name + 2;
+			Outmerge(Main_name, p);
+
+			//スレッドがすべて終了するまで待機する
+			WaitForSingleObject(Sub1Thread, INFINITE);
+			WaitForSingleObject(Sub2Thread, INFINITE);
+			WaitForSingleObject(Sub3Thread, INFINITE);
+			WaitForSingleObject(Sub4Thread, INFINITE);
+			WaitForSingleObject(Sub5Thread, INFINITE);
+			WaitForSingleObject(Sub6Thread, INFINITE);
+			WaitForSingleObject(Sub7Thread, INFINITE);
+			WaitForSingleObject(Sub8Thread, INFINITE);
+			WaitForSingleObject(Sub9Thread, INFINITE);
+			WaitForSingleObject(Sub10Thread, INFINITE);
+			WaitForSingleObject(Sub11Thread, INFINITE);
+
+			//スレッドを一旦全て閉じる
+			CloseHandle(Sub1Thread);
+			CloseHandle(Sub2Thread);
+			CloseHandle(Sub3Thread);
+			CloseHandle(Sub4Thread);
+			CloseHandle(Sub5Thread);
+			CloseHandle(Sub6Thread);
+			CloseHandle(Sub7Thread);
+			CloseHandle(Sub8Thread);
+			CloseHandle(Sub9Thread);
+			CloseHandle(Sub10Thread);
+			CloseHandle(Sub11Thread);
+
+			q = Main_name + 2;
 		}
 		for (i = 0;; i++) {
 			sprintf(removefile, "dat%d\\%d.dat", p, i);
@@ -464,5 +574,7 @@ int main() {
 		}
 		tmp = (tmp + 1) / 2;
 	}
+
+	printf("\n\n\nソーティング完了しました\n");
 	return 0;
 }
