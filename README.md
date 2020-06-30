@@ -1,7 +1,7 @@
 # OutofSort
 
 ## Explanation
-[gensort]（http://www.ordinal.com/gensort.html）にて作成されたデータをソートする<br>
+[gensort](http://www.ordinal.com/gensort.html) にて作成されたデータをソートする<br>
 ダウンロード先　<br>
 windows・・・"gensort-win-1.5.zip"<br>
 linux・・・"gensort-linux-1.5.tar.gz"<br>
