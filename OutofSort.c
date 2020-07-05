@@ -20,6 +20,7 @@
 #include<process.h>
 #include<direct.h>
 
+
 #pragma warning(disable:4996)
 #pragma comment(lib, "winmm.lib")
 
@@ -308,7 +309,7 @@ void sortQuickandMerge(unsigned long left, unsigned long right, char** arr) {
 
 int main() {
 	//ソートしたいfile名
-	char* FileName = "1000000.dat";
+	char* FileName = "0.dat";
 	char outname[20];
 	FILE* fp;
 	bool ExitCount = 0;
@@ -342,6 +343,9 @@ int main() {
 			break;
 		}
 		FILE* outfile;
+		if (_mkdir("dat0") == 0) {
+			printf("new folder\n");
+		}
 		sprintf(outname, "%s\\%d.dat", "dat0", OutLimitMane);
 		outfile = fopen(outname, "w");
 		char** aa = input_array - 1;
@@ -388,182 +392,36 @@ int main() {
 	for (p = 0; p < foldroop; p++) {
 		//一時ファイルをすべてマージするまでループする
 		for (q = 0; q < tmp;) {
-			HANDLE Sub1Thread, Sub2Thread, Sub3Thread;
-			HANDLE Sub4Thread, Sub5Thread, Sub6Thread;
-			HANDLE Sub7Thread, Sub8Thread, Sub9Thread;
-			HANDLE Sub10Thread, Sub11Thread;
-			struct Merge_info par1, par2, par3;
-			struct Merge_info par4, par5, par6;
-			struct Merge_info par7, par8, par9;
-			struct Merge_info par10, par11;
-
-			//どの一時ファイルをマージするかを各スレッドの構造体に入力する
-			par1.name = q;
-			par1.fold = p;
-			par2.name = par1.name + 2;
-			par2.fold = p;
-			par3.name = par2.name + 2;
-			par3.fold = p;
-			par4.name = par3.name + 2;
-			par4.fold = p;
-			par5.name = par4.name + 2;
-			par5.fold = p;
-			par6.name = par5.name + 2;
-			par6.fold = p;
-			par7.name = par6.name + 2;
-			par7.fold = p;
-			par8.name = par7.name + 2;
-			par8.fold = p;
-			par9.name = par8.name + 2;
-			par9.fold = p;
-			par10.name = par9.name + 2;
-			par10.fold = p;
-			par11.name = par10.name + 2;
-			par11.fold = p;
-
-			printf("%d, %d ", par1.name, par1.name + 1);
-			printf("%d, %d ", par2.name, par2.name + 1);
-			printf("%d, %d ", par3.name, par3.name + 1);
-			printf("%d, %d ", par4.name, par4.name + 1);
-			printf("%d, %d ", par5.name, par5.name + 1);
-			printf("%d, %d ", par6.name, par6.name + 1);
-			printf("%d, %d ", par7.name, par7.name + 1);
-			printf("%d, %d ", par8.name, par8.name + 1);
-			printf("%d, %d ", par9.name, par9.name + 1);
-			printf("%d, %d ", par10.name, par10.name + 1);
-			printf("%d, %d ", par11.name, par11.name + 1);
-
-
-			//各スレッドにマージソートを割り振る
-			
-			Sub1Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par1,
-				0,
-				NULL
-			);
-
-			Sub2Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par2,
-				0,
-				NULL
-			);
-
-			Sub3Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par3,
-				0,
-				NULL
-			);
-
-			Sub4Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par4,
-				0,
-				NULL
-			);
-
-			Sub5Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par5,
-				0,
-				NULL
-			);
-
-			Sub6Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par6,
-				0,
-				NULL
-			);
-
-			Sub7Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par7,
-				0,
-				NULL
-			);
-
-			Sub8Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par8,
-				0,
-				NULL
-			);
-
-			Sub9Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par9,
-				0,
-				NULL
-			);
-
-			Sub10Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par10,
-				0,
-				NULL
-			);
-
-			Sub11Thread = (HANDLE)_beginthreadex(
-				NULL,
-				0,
-				&Out_merge_ThreadEntry,
-				(void*)&par11,
-				0,
-				NULL
-			);
-
-			Main_name = par11.name + 2;
+			HANDLE ThreadList[NUM_THREADS];
+			struct Merge_info parlist[NUM_THREADS];
+			for (i = 0; i < NUM_THREADS; i++) {
+				if (i == 0) {
+					parlist[i].name = q;
+					parlist[i].fold = p;
+				}
+				else {
+					parlist[i].name = parlist[i - 1].name + 2;
+					parlist[i].fold = parlist[i - 1].fold;
+				}
+			}
+			for (i = 0; i < NUM_THREADS; i++) {
+				ThreadList[i] = (HANDLE)_beginthreadex(
+					NULL,
+					0,
+					&Out_merge_ThreadEntry,
+					(void*)&parlist[i],
+					0,
+					NULL
+				);
+			}
+			Main_name = parlist[NUM_THREADS - 1].name + 2;
 			Outmerge(Main_name, p);
 
-			//スレッドがすべて終了するまで待機する
-			WaitForSingleObject(Sub1Thread, INFINITE);
-			WaitForSingleObject(Sub2Thread, INFINITE);
-			WaitForSingleObject(Sub3Thread, INFINITE);
-			WaitForSingleObject(Sub4Thread, INFINITE);
-			WaitForSingleObject(Sub5Thread, INFINITE);
-			WaitForSingleObject(Sub6Thread, INFINITE);
-			WaitForSingleObject(Sub7Thread, INFINITE);
-			WaitForSingleObject(Sub8Thread, INFINITE);
-			WaitForSingleObject(Sub9Thread, INFINITE);
-			WaitForSingleObject(Sub10Thread, INFINITE);
-			WaitForSingleObject(Sub11Thread, INFINITE);
+			WaitForMultipleObjects(NUM_THREADS, ThreadList, TRUE, INFINITE);
 
-			//スレッドを一旦全て閉じる
-			CloseHandle(Sub1Thread);
-			CloseHandle(Sub2Thread);
-			CloseHandle(Sub3Thread);
-			CloseHandle(Sub4Thread);
-			CloseHandle(Sub5Thread);
-			CloseHandle(Sub6Thread);
-			CloseHandle(Sub7Thread);
-			CloseHandle(Sub8Thread);
-			CloseHandle(Sub9Thread);
-			CloseHandle(Sub10Thread);
-			CloseHandle(Sub11Thread);
-
+			for (i = 0; i < NUM_THREADS; i++) {
+				CloseHandle(ThreadList[i]);
+			}
 			q = Main_name + 2;
 		}
 		for (i = 0;; i++) {
@@ -573,6 +431,14 @@ int main() {
 			}
 		}
 		tmp = (tmp + 1) / 2;
+	}
+
+	char dir[20];
+	for (i = 0; i < p; i++) {
+		sprintf(dir, "dat%d", i);
+		if (_rmdir(dir) == 0) {
+			printf("delete\n");
+		}
 	}
 
 	printf("\n\n\nソーティング完了しました\n");
